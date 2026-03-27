@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ profile_user.username }} — WaitWatcher</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        .profile-shell { max-width: 720px; margin: 0 auto; padding: 1.4rem 1.2rem; }
+        .profile-back { display: inline-flex; align-items: center; gap: 0.4rem; color: #fce7f3; font-size: 0.88rem; font-weight: 600; text-decoration: none; margin-bottom: 1rem; opacity: 0.85; }
+        .profile-back:hover { opacity: 1; }
+        .profile-card { background: #fff; border-radius: 16px; border: 1px solid var(--border); box-shadow: var(--shadow); padding: 1.6rem 1.8rem; margin-bottom: 1.4rem; display: flex; align-items: center; gap: 1.4rem; }
+        .profile-avatar { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg, #7c3aed, #db2777); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: 800; color: #fff; flex-shrink: 0; box-shadow: 0 4px 16px rgba(124,58,237,0.45); }
+        .profile-info { flex: 1; min-width: 0; }
+        .profile-username { margin: 0 0 0.4rem; font-size: 1.5rem; font-weight: 800; color: var(--text); }
+        .profile-meta { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+        .profile-stat { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+        .profile-stat strong { color: var(--text); }
+        .markers-section { background: #fff; border-radius: 16px; border: 1px solid var(--border); box-shadow: var(--shadow); overflow: hidden; }
+        .markers-section-head { padding: 0.9rem 1.2rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+        .markers-section-head h2 { margin: 0; font-size: 1rem; font-weight: 750; }
+        .pml { list-style: none; margin: 0; padding: 0; }
+        .pml-item { display: flex; align-items: center; gap: 0.7rem; padding: 0.7rem 1.2rem; border-bottom: 1px solid #f0f4fb; }
+        .pml-item:last-child { border-bottom: none; }
+        .pml-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .pml-body { flex: 1; min-width: 0; }
+        .pml-name { font-size: 0.9rem; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pml-meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem; }
+        .pml-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; flex-shrink: 0; }
+        .pml-expiry { font-size: 0.7rem; color: #6683ae; white-space: nowrap; }
+        .pml-accuracy { font-size: 0.7rem; color: #6683ae; }
+        .empty-state { padding: 2rem 1.2rem; text-align: center; color: var(--muted); font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+<div style="background: radial-gradient(circle at 85% 50%, rgba(236,72,153,0.4) 0%, transparent 50%), linear-gradient(140deg, #0d0720, #2a0d6e 35%, #6b21a8 65%, #9d174d 100%); padding: 1rem 1.4rem 1.2rem;">
+    <div style="max-width: 720px; margin: 0 auto;">
+        <a href="/" class="profile-back">&#8592; Back to map</a>
+    </div>
+</div>
+
+<div class="profile-shell">
+    <div class="profile-card">
+        <div class="profile-avatar">{{ profile_user.username[0].upper() }}</div>
+        <div class="profile-info">
+            <h1 class="profile-username">{{ profile_user.username }}</h1>
+            <div class="profile-meta">
+                <span class="tier-badge tier--{{ profile_user.tier.lower() }}">{{ profile_user.tier }}</span>
+                <span class="profile-stat">&#128205; <strong>{{ profile_user.total_markers }}</strong> markers submitted</span>
+                <span class="profile-stat">&#9889; <strong>{{ profile_user.karma }}</strong> wait karma</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="markers-section">
+        <div class="markers-section-head">
+            <h2>Active Markers <span class="count-badge">{{ markers | length }}</span></h2>
+            <span style="font-size:0.8rem; color:var(--muted);">Expire after {{ marker_max_age_hours }}h</span>
+        </div>
+        {% if markers %}
+        <ul class="pml">
+            {% for m in markers %}
+            {% set effective_ts = m.updated_at or m.submitted_at %}
+            <li class="pml-item"
+                data-submitted="{{ effective_ts }}"
+                data-max-age-ms="{{ marker_max_age_hours * 3600 * 1000 }}">
+                <div class="pml-dot" style="background: var(--cat-unknown)" data-wait="{{ m.wait_time }}"></div>
+                <div class="pml-body">
+                    <div class="pml-name">{{ m.name }}</div>
+                    <div class="pml-meta">
+                        {% if m.updated_at %}
+                            Updated by <strong>{{ m.updated_by_username }}</strong> &middot;
+                        {% endif %}
+                        {{ m.lat | round(4) }}, {{ m.lng | round(4) }}
+                        {% if m.notes %} &middot; {{ m.notes }}{% endif %}
+                    </div>
+                </div>
+                <div class="pml-right">
+                    <span class="ww-pill" data-wait-pill="{{ m.wait_time }}">{{ m.wait_time }}</span>
+                    {% if m.upvotes + m.downvotes > 0 %}
+                    <span class="pml-accuracy">&#9650;{{ m.upvotes }} &#9660;{{ m.downvotes }}</span>
+                    {% endif %}
+                    <span class="pml-expiry" data-expiry-item>…</span>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty-state">No active markers right now.</div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+// Apply wait-time category colors
+const CAT_COLORS = {
+    none: "#16a34a", low: "#65a30d", medium: "#d97706", high: "#dc2626", unknown: "#2563eb"
+};
+function categorizeWait(s) {
+    s = String(s || "").toLowerCase().trim();
+    if (!s || s === "no wait" || s === "none" || s === "0") return "none";
+    const hr = s.match(/(\d+(?:\.\d+)?)\s*h/), mn = s.match(/(\d+)\s*m/);
+    let min = 0;
+    if (hr) min += parseFloat(hr[1]) * 60;
+    if (mn) min += parseInt(mn[1], 10);
+    if (!min && /^\d+$/.test(s)) min = parseInt(s, 10);
+    if (!min) return "unknown";
+    if (min <= 10) return "low";
+    if (min <= 25) return "medium";
+    return "high";
+}
+document.querySelectorAll("[data-wait]").forEach(el => {
+    const cat = categorizeWait(el.dataset.wait);
+    el.style.background = CAT_COLORS[cat];
+});
+document.querySelectorAll("[data-wait-pill]").forEach(el => {
+    const cat = categorizeWait(el.dataset.waitPill);
+    el.style.background = CAT_COLORS[cat];
+    el.style.color = "#fff";
+});
+
+// Expiry countdowns
+function formatExpiry(ms) {
+    if (ms <= 0) return "expired";
+    const totalMin = Math.ceil(ms / 60000);
+    if (totalMin < 1) return "< 1m left";
+    if (totalMin < 60) return `${totalMin}m left`;
+    const hr = Math.floor(totalMin / 60), min = totalMin % 60;
+    return min > 0 ? `${hr}h ${min}m left` : `${hr}h left`;
+}
+function refreshCountdowns() {
+    document.querySelectorAll("[data-expiry-item]").forEach(el => {
+        const item = el.closest("[data-submitted]");
+        if (!item) return;
+        const ts = new Date(item.dataset.submitted);
+        const maxAge = parseInt(item.dataset.maxAgeMs, 10);
+        const remaining = ts.getTime() + maxAge - Date.now();
+        el.textContent = formatExpiry(remaining);
+        el.style.color = remaining < 30 * 60 * 1000 ? "#b45309" : "#6683ae";
+    });
+}
+refreshCountdowns();
+setInterval(refreshCountdowns, 30000);
+</script>
+</body>
+</html>

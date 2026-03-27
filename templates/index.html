@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WaitWatcher</title>
+
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""
+    />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="app-shell">
+        <header class="hero">
+            <div class="hero-top">
+                <div class="hero-title">
+                    <div class="logo-wrap">
+                        <svg class="logo-icon" xmlns="http://www.w3.org/2000/svg" width="44" height="52" viewBox="0 0 44 52" fill="none">
+                            <defs>
+                                <linearGradient id="ww-pin-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#f0abfc"/>
+                                    <stop offset="45%" stop-color="#c084fc"/>
+                                    <stop offset="100%" stop-color="#818cf8"/>
+                                </linearGradient>
+                            </defs>
+                            <ellipse cx="22" cy="50.5" rx="6.5" ry="1.8" fill="rgba(0,0,0,0.22)"/>
+                            <path d="M22 2C12.06 2 4 10.06 4 20C4 31.5 22 50 22 50C22 50 40 31.5 40 20C40 10.06 31.94 2 22 2Z" fill="url(#ww-pin-grad)"/>
+                            <path d="M22 2C12.06 2 4 10.06 4 20C4 31.5 22 50 22 50C22 50 40 31.5 40 20C40 10.06 31.94 2 22 2Z" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.65)" stroke-width="1.2"/>
+                            <circle cx="22" cy="19.5" r="12" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.95)" stroke-width="1.8"/>
+                            <line x1="22" y1="9.5" x2="22" y2="12.2" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="32" y1="19.5" x2="29.3" y2="19.5" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="22" y1="29.5" x2="22" y2="26.8" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="12" y1="19.5" x2="14.7" y2="19.5" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="22" y1="19.5" x2="22" y2="11.5" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+                            <line x1="22" y1="19.5" x2="27.5" y2="19.5" stroke="rgba(255,255,255,0.88)" stroke-width="2" stroke-linecap="round"/>
+                            <circle cx="22" cy="19.5" r="2.2" fill="white"/>
+                        </svg>
+                        <h1>WaitWatcher</h1>
+                    </div>
+                    <p class="subtitle">Community wait times, live on the map.</p>
+                </div>
+                <div class="account-bar">
+                    <div id="account-status" class="account-status">Not signed in</div>
+                    <button id="tiers-btn" type="button" class="btn-secondary btn-tiers" title="View tier levels">&#127942; Tiers</button>
+                    <button id="auth-open-btn" type="button" class="btn-secondary">Sign in</button>
+                    <button id="auth-logout-btn" type="button" class="btn-secondary" style="display:none;">Sign out</button>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <aside class="sidebar">
+                <div class="sidebar-head">
+                    <h2>Live Markers <span id="marker-count" class="count-badge">0</span></h2>
+                    <button id="refresh-btn" class="btn-icon-sm" title="Refresh markers">&#8635;</button>
+                </div>
+
+                <div id="marker-list" class="marker-list">
+                    <div class="marker-list-empty">No markers yet. Right-click the map or tap <strong>+ Pin</strong> to add one.</div>
+                </div>
+
+                <p id="status" class="status-bar">Loading map&hellip;</p>
+
+                <details class="how-to-use">
+                    <summary>How to use</summary>
+                    <ol>
+                        <li>Allow location access when prompted.</li>
+                        <li>Use the search bar to navigate to a place.</li>
+                        <li>Right-click the map, or tap <strong>+ Pin</strong>, to add a wait time.</li>
+                        <li>Sign in to save markers for everyone to see.</li>
+                        <li>Colors: <span class="legend-dot cat-none"></span> No wait &nbsp; <span class="legend-dot cat-low"></span> Short &nbsp; <span class="legend-dot cat-medium"></span> Medium &nbsp; <span class="legend-dot cat-high"></span> Long</li>
+                    </ol>
+                </details>
+            </aside>
+
+            <section class="map-section">
+                <div class="location-search-bar">
+                    <input id="location-search-input" type="text" placeholder="Go to a location… e.g. UCLA, Times Square" autocomplete="off" />
+                    <button id="location-search-btn" type="button" class="btn-primary">&#128269; Search</button>
+                </div>
+                <div id="map"></div>
+                <datalist id="ww-wait-presets">
+                    <option value="No wait">
+                    <option value="5 min">
+                    <option value="10 min">
+                    <option value="15 min">
+                    <option value="20 min">
+                    <option value="30 min">
+                    <option value="45 min">
+                    <option value="1 hour">
+                    <option value="1.5 hours">
+                    <option value="2+ hours">
+                </datalist>
+            </section>
+        </main>
+    </div>
+
+    <script
+        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""
+    ></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <script src="https://unpkg.com/leaflet.gridlayer.googlemutant@0.13.5/Leaflet.GoogleMutant.js"></script>
+    <script>
+        window.WAITWATCHER_CONFIG = { googleMapsApiKey: "{{ google_maps_api_key }}" };
+    </script>
+    {% if google_maps_api_key %}
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places"></script>
+    {% endif %}
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+
+    <!-- Tiers modal -->
+    <div id="tiers-modal" class="tiers-modal" hidden>
+        <div class="tiers-card">
+            <div class="tiers-card-head">
+                <h2 class="tiers-title">&#127942; Tier Levels</h2>
+                <button id="tiers-close-btn" type="button" class="btn-icon-sm tiers-close-btn" title="Close">&times;</button>
+            </div>
+            <div id="tiers-body" class="tiers-body"></div>
+            <div id="tiers-progress" class="tiers-progress" hidden></div>
+        </div>
+    </div>
+
+    <!-- Auth modal -->
+    <div id="auth-modal" class="auth-modal" hidden>
+        <div class="auth-card">
+            <div class="auth-card-head">
+                <div class="auth-tabs">
+                    <button id="auth-tab-login" type="button" class="auth-tab active">Sign in</button>
+                    <button id="auth-tab-register" type="button" class="auth-tab">Create account</button>
+                </div>
+            </div>
+
+            <div class="auth-body">
+                <form id="login-form" class="auth-form">
+                    <label for="login-username">Username</label>
+                    <input id="login-username" name="username" type="text" required />
+                    <label for="login-password">Password</label>
+                    <input id="login-password" name="password" type="password" required />
+                    <button type="submit" class="btn-primary auth-submit">Sign in</button>
+                </form>
+
+                <form id="register-form" class="auth-form" style="display:none;">
+                    <label for="register-username">Username</label>
+                    <input id="register-username" name="username" type="text" required />
+                    <label for="register-email">Email</label>
+                    <input id="register-email" name="email" type="email" required />
+                    <label for="register-password">Password</label>
+                    <input id="register-password" name="password" type="password" required />
+                    <button type="submit" class="btn-primary auth-submit">Create account</button>
+                </form>
+            </div>
+
+            <div id="auth-error" class="auth-error" role="alert"></div>
+
+            <div class="auth-footer">
+                <button id="auth-close-btn" type="button" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
