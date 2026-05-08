@@ -20,10 +20,15 @@ const appConfig = window.WAITWATCHER_CONFIG || {};
 // ─── State ──────────────────────────────────────────────────────────────────
 const markerRegistry = new Map(); // id -> { leafletMarker, data }
 let userMarker = null;
+let userLocation = null; // { lat, lng } — used for distance + Near me
 let currentUser = null;
 let placeMode = false;
 let activeFormPopup = null;
 let _loadMeSeq = 0; // version counter — prevents stale loadMe() from overwriting newer auth state
+
+// Filter / search state (applies to both list and map)
+let activeFilter = "all"; // 'all' | 'none' | 'low' | 'medium' | 'high'
+let searchQuery = "";
 
 // ─── Map setup ──────────────────────────────────────────────────────────────
 const map = L.map("map").setView(CPP, 14);
@@ -112,6 +117,29 @@ function formatExpiry(ms) {
     return min > 0 ? `${hr}h ${min}m left` : `${hr}h left`;
 }
 
+// Haversine distance in meters between two lat/lng pairs
+function distanceMeters(a, b) {
+    if (!a || !b) return null;
+    const toRad = (x) => (x * Math.PI) / 180;
+    const R = 6371000;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function formatDistance(meters) {
+    if (meters == null) return "";
+    if (meters < 1000) return `${Math.round(meters)} m away`;
+    const km = meters / 1000;
+    if (km < 10) return `${km.toFixed(1)} km away`;
+    return `${Math.round(km)} km away`;
+}
+
 // ─── Wait time categorization ────────────────────────────────────────────────
 function categorizeWait(str) {
     const s = String(str || "").toLowerCase().trim();
@@ -126,6 +154,35 @@ function categorizeWait(str) {
     if (minutes <= 10) return "low";
     if (minutes <= 25) return "medium";
     return "high";
+}
+
+// ─── Filter / search ─────────────────────────────────────────────────────────
+function markerMatchesFilter(marker) {
+    if (activeFilter !== "all") {
+        const cat = categorizeWait(marker.wait_time);
+        // 'low' filter also covers the 'unknown' category to keep things simple
+        if (activeFilter === "low" && cat === "unknown") return true;
+        if (cat !== activeFilter) return false;
+    }
+    if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const hay = `${marker.name || ""} ${marker.notes || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+    }
+    return true;
+}
+
+function applyFilterToMap() {
+    for (const { leafletMarker, data } of markerRegistry.values()) {
+        const visible = markerMatchesFilter(data);
+        const el = leafletMarker.getElement?.();
+        if (visible) {
+            if (!map.hasLayer(leafletMarker)) leafletMarker.addTo(map);
+            if (el) el.style.display = "";
+        } else {
+            if (map.hasLayer(leafletMarker)) map.removeLayer(leafletMarker);
+        }
+    }
 }
 
 // ─── Marker icons ────────────────────────────────────────────────────────────
@@ -211,9 +268,15 @@ function buildPopupContent(marker) {
 }
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
-function updateMarkerCount() {
+function updateMarkerCount(visibleCount) {
+    const total = markerRegistry.size;
+    const shown = (typeof visibleCount === "number") ? visibleCount : total;
+    const isFiltered = (activeFilter !== "all") || !!searchQuery;
+    const text = isFiltered ? `${shown}/${total}` : `${total}`;
     const el = document.getElementById("marker-count");
-    if (el) el.textContent = markerRegistry.size;
+    if (el) el.textContent = text;
+    const toggleEl = document.getElementById("sidebar-toggle-count");
+    if (toggleEl) toggleEl.textContent = text;
 }
 
 function rebuildSidebar() {
@@ -230,11 +293,19 @@ function rebuildSidebar() {
 
     if (entries.length === 0) {
         list.innerHTML = `<div class="marker-list-empty">No markers yet. Right-click the map or tap <strong>+ Pin</strong> to add one.</div>`;
-        updateMarkerCount();
+        updateMarkerCount(0);
         return;
     }
 
-    for (const { data } of entries) {
+    const visibleEntries = entries.filter(({ data }) => markerMatchesFilter(data));
+
+    if (visibleEntries.length === 0) {
+        list.innerHTML = `<div class="marker-list-empty empty-filter">No markers match the current filter.</div>`;
+        updateMarkerCount(0);
+        return;
+    }
+
+    for (const { data } of visibleEntries) {
         const category = categorizeWait(data.wait_time);
         const effectiveTs = data.updated_at || data.submitted_at;
         const stale = isStale(effectiveTs);
@@ -257,11 +328,17 @@ function rebuildSidebar() {
             ? `<span class="accuracy-badge" title="Accuracy votes">&#9650;${upvotes} &#9660;${downvotes}</span>`
             : "";
 
+        const distMeters = userLocation ? distanceMeters(userLocation, { lat: data.lat, lng: data.lng }) : null;
+        const distHtml = distMeters != null
+            ? `<div class="mli-distance">${escapeHtml(formatDistance(distMeters))}</div>`
+            : "";
+
         item.innerHTML = `
             <div class="mli-dot cat-${category}"></div>
             <div class="mli-body">
                 <div class="mli-name">${escapeHtml(data.name)}</div>
                 <div class="mli-meta">by ${by}${badge ? " " + badge : ""} &middot; ${escapeHtml(age)}</div>
+                ${distHtml}
                 <div class="mli-expiry${expirySoon ? " expiry-soon" : ""}" data-marker-id="${data.id}">${formatExpiry(expiryMs)}</div>
             </div>
             <span class="mli-pill cat-${category}">${escapeHtml(data.wait_time)}</span>
@@ -281,7 +358,7 @@ function rebuildSidebar() {
         list.appendChild(item);
     }
 
-    updateMarkerCount();
+    updateMarkerCount(visibleEntries.length);
 }
 
 // ─── Map marker management ───────────────────────────────────────────────────
@@ -296,8 +373,9 @@ function addMarkerToMap(marker) {
 
     const leafletMarker = L.marker([marker.lat, marker.lng])
         .setIcon(icon)
-        .addTo(map)
         .bindPopup(() => buildPopupContent(marker), { maxWidth: 290 });
+
+    if (markerMatchesFilter(marker)) leafletMarker.addTo(map);
 
     const ageDisplay = stale ? `${age} (old)` : age;
     const tooltipHtml = `
@@ -369,7 +447,10 @@ async function refreshMarkers() {
                 }
             }
         }
-        if (changed) rebuildSidebar();
+        if (changed) {
+            applyFilterToMap();
+            rebuildSidebar();
+        }
     } catch {
         // Silent fail on background refresh
     }
@@ -430,6 +511,7 @@ async function updateMarker(markerId, waitTime) {
             sticky: false, interactive: false,
         });
     }
+    applyFilterToMap();
     rebuildSidebar();
     setStatus(`Wait time updated: ${updated.wait_time}`);
 }
@@ -690,12 +772,64 @@ function getUserLocation() {
     navigator.geolocation.getCurrentPosition(
         (pos) => {
             const { latitude: lat, longitude: lng } = pos.coords;
+            userLocation = { lat, lng };
             map.setView([lat, lng], 15);
             if (userMarker) map.removeLayer(userMarker);
             userMarker = L.marker([lat, lng]).addTo(map).bindPopup("You are here.").openPopup();
             setStatus("Location found. Right-click or tap + Pin to add a wait-time marker.");
+            rebuildSidebar(); // refresh distance labels
         },
         () => {},
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+}
+
+// ─── Near-me control ─────────────────────────────────────────────────────────
+function addLocateControl() {
+    const Control = L.Control.extend({
+        options: { position: "bottomright" },
+        onAdd() {
+            const wrap = L.DomUtil.create("div", "ww-locate-wrap");
+            const btn = L.DomUtil.create("button", "ww-locate-btn", wrap);
+            btn.type = "button";
+            btn.innerHTML = "&#9678;"; // ◎ — circular target glyph
+            btn.title = "Center on my location";
+            btn.setAttribute("aria-label", "Center on my location");
+            L.DomEvent.on(btn, "click", L.DomEvent.stop);
+            L.DomEvent.on(btn, "click", () => locateMe(btn));
+            return wrap;
+        },
+    });
+    new Control().addTo(map);
+}
+
+function locateMe(btn) {
+    if (!navigator.geolocation) {
+        setStatus("Geolocation is not supported by this browser.");
+        return;
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add("locating");
+    }
+    setStatus("Finding your location…");
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const { latitude: lat, longitude: lng } = pos.coords;
+            userLocation = { lat, lng };
+            map.flyTo([lat, lng], 15, { duration: 0.6 });
+            if (userMarker) map.removeLayer(userMarker);
+            userMarker = L.marker([lat, lng]).addTo(map).bindPopup("You are here.");
+            setStatus("Centered on your location.");
+            rebuildSidebar();
+            if (btn) { btn.disabled = false; btn.classList.remove("locating"); }
+        },
+        (err) => {
+            setStatus(err && err.code === 1
+                ? "Location permission denied."
+                : "Could not get your location.");
+            if (btn) { btn.disabled = false; btn.classList.remove("locating"); }
+        },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
 }
@@ -908,7 +1042,84 @@ function refreshCountdowns() {
     }
 }
 
+// ─── Filter chips ────────────────────────────────────────────────────────────
+document.querySelectorAll(".filter-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+        const filter = chip.dataset.filter;
+        if (!filter) return;
+        activeFilter = filter;
+        document.querySelectorAll(".filter-chip").forEach((c) => {
+            c.classList.toggle("active", c.dataset.filter === filter);
+        });
+        applyFilterToMap();
+        rebuildSidebar();
+    });
+});
+
+// ─── Marker search ───────────────────────────────────────────────────────────
+const searchInput = document.getElementById("marker-search-input");
+const searchClear = document.getElementById("marker-search-clear");
+
+if (searchInput) {
+    searchInput.addEventListener("input", () => {
+        searchQuery = searchInput.value.trim();
+        if (searchClear) searchClear.hidden = !searchQuery;
+        applyFilterToMap();
+        rebuildSidebar();
+    });
+}
+
+if (searchClear) {
+    searchClear.addEventListener("click", () => {
+        if (!searchInput) return;
+        searchInput.value = "";
+        searchQuery = "";
+        searchClear.hidden = true;
+        searchInput.focus();
+        applyFilterToMap();
+        rebuildSidebar();
+    });
+}
+
+// ─── Sidebar toggle (mobile bottom-sheet) ────────────────────────────────────
+function openSidebar() {
+    const sb = document.getElementById("sidebar");
+    if (!sb) return;
+    sb.classList.add("is-open");
+    document.body.classList.add("sidebar-open");
+    document.getElementById("sidebar-toggle")?.setAttribute("aria-expanded", "true");
+}
+
+function closeSidebar() {
+    const sb = document.getElementById("sidebar");
+    if (!sb) return;
+    sb.classList.remove("is-open");
+    document.body.classList.remove("sidebar-open");
+    document.getElementById("sidebar-toggle")?.setAttribute("aria-expanded", "false");
+}
+
+document.getElementById("sidebar-toggle")?.addEventListener("click", () => {
+    const sb = document.getElementById("sidebar");
+    if (sb?.classList.contains("is-open")) closeSidebar();
+    else openSidebar();
+});
+
+document.getElementById("sidebar-close")?.addEventListener("click", closeSidebar);
+
+// Tapping the body backdrop (visible only on mobile when open) closes the drawer.
+document.addEventListener("click", (e) => {
+    if (!document.body.classList.contains("sidebar-open")) return;
+    const sb = document.getElementById("sidebar");
+    const toggle = document.getElementById("sidebar-toggle");
+    if (sb && !sb.contains(e.target) && !toggle?.contains(e.target)) closeSidebar();
+});
+
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeSidebar();
+});
+
 // ─── Init ────────────────────────────────────────────────────────────────────
+addLocateControl();
 addPlaceModeControl();
 getUserLocation();
 loadMarkers();

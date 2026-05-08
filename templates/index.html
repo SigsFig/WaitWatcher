@@ -11,7 +11,10 @@
     gtag('config', 'G-TZFJ508RLP');
     </script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#2a0d6e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>WaitWatcher</title>
 
     <link
@@ -62,11 +65,33 @@
             </div>
         </header>
 
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-expanded="false" aria-controls="sidebar">
+            <span class="sidebar-toggle-icon" aria-hidden="true">&#9776;</span>
+            <span class="sidebar-toggle-text">Markers <span id="sidebar-toggle-count" class="count-badge">0</span></span>
+        </button>
+
         <main>
-            <aside class="sidebar">
+            <aside id="sidebar" class="sidebar">
                 <div class="sidebar-head">
                     <h2>Live Markers <span id="marker-count" class="count-badge">0</span></h2>
-                    <button id="refresh-btn" class="btn-icon-sm" title="Refresh markers">&#8635;</button>
+                    <div class="sidebar-head-actions">
+                        <button id="refresh-btn" class="btn-icon-sm" title="Refresh markers">&#8635;</button>
+                        <button id="sidebar-close" class="btn-icon-sm sidebar-close" type="button" title="Close">&times;</button>
+                    </div>
+                </div>
+
+                <div class="sidebar-controls">
+                    <div class="filter-chips" role="group" aria-label="Filter by wait time">
+                        <button type="button" class="filter-chip active" data-filter="all">All</button>
+                        <button type="button" class="filter-chip cat-none" data-filter="none">No wait</button>
+                        <button type="button" class="filter-chip cat-low" data-filter="low">Short</button>
+                        <button type="button" class="filter-chip cat-medium" data-filter="medium">Medium</button>
+                        <button type="button" class="filter-chip cat-high" data-filter="high">Long</button>
+                    </div>
+                    <div class="marker-search">
+                        <input id="marker-search-input" type="text" placeholder="Search markers&hellip;" autocomplete="off" />
+                        <button id="marker-search-clear" type="button" class="marker-search-clear" title="Clear" hidden>&times;</button>
+                    </div>
                 </div>
 
                 <div id="marker-list" class="marker-list">
